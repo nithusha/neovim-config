@@ -272,6 +272,9 @@ vim.keymap.set("x", "p", [["_dP]])
 vim.keymap.set('n', '<leader>p', '"+p')
 vim.keymap.set('v', '<leader>y', '"+y') -- Leader + y to copy to system clipboard
 
+-- One-key Git Sync (Add, Commit, and Push)
+vim.keymap.set('n', '<leader>gp', ':!git add . && git commit -m "auto-update" && git push<CR>', { desc = "Git Push Shortcut" })
+
 -- ==========================================================================
 -- 6. AUTOMATION & FILE-SPECIFIC FIXES
 -- ==========================================================================
