@@ -187,26 +187,74 @@ require("lazy").setup({
       "L3MON4D3/LuaSnip",
       "micangl/cmp-vimtex",
     },
+config = function()
+  local cmp = require("cmp")
+  local luasnip = require("luasnip")
+
+  cmp.setup({
+    snippet = {
+      expand = function(args)
+        luasnip.lsp_expand(args.body)
+      end,
+    },
+    mapping = cmp.mapping.preset.insert({
+      -- 1. Up/Down Arrows: Cycle completion menu if visible
+      ["<Down>"] = cmp.mapping(function(fallback)
+        if cmp.visible() then
+          cmp.select_next_item({ behavior = cmp.SelectBehavior.Insert })
+        else
+          fallback()
+        end
+      end, { "i", "s" }),
+
+      ["<Up>"] = cmp.mapping(function(fallback)
+        if cmp.visible() then
+          cmp.select_prev_item({ behavior = cmp.SelectBehavior.Insert })
+        else
+          fallback()
+        end
+      end, { "i", "s" }),
+
+      -- 2. Tab: Do NOTHING if menu is visible (Arrows handle it). 
+      -- If menu is closed: Jump snippets or Tabout.
+      ["<Tab>"] = cmp.mapping(function(fallback)
+        if cmp.visible() then
+          return -- Important: This makes Tab do nothing when menu is open
+        elseif luasnip.expand_or_jumpable() then
+          luasnip.expand_or_jump()
+        elseif require("tabout").tabout then
+          -- We try to tabout; if we aren't in brackets, it falls back to normal Tab
+          local success = require("tabout").tabout()
+          if not success then fallback() end
+        else
+          fallback()
+        end
+      end, { "i", "s" }),
+
+      -- 3. Enter: Confirm the selection
+      ["<CR>"] = cmp.mapping.confirm({ select = true }),
+    }), -- This brace closes the mapping table correctly
+
+    -- Sources must be OUTSIDE the mapping table
+    sources = cmp.config.sources({
+      { name = 'vimtex' },
+      { name = 'luasnip' },
+      { name = 'buffer' },
+    }),
+  })
+end,
+},
+  -- TABOUT
+  {
+    'abecodes/tabout.nvim',
+    event = 'InsertEnter', 
     config = function()
-      local cmp = require("cmp")
-      local luasnip = require("luasnip")
-      cmp.setup({
-        snippet = { expand = function(args) luasnip.lsp_expand(args.body) end },
-        mapping = cmp.mapping.preset.insert({
-          ['<CR>'] = cmp.mapping.confirm({ select = true }),
-          ["<Tab>"] = cmp.mapping(function(fallback)
-            if cmp.visible() then cmp.select_next_item()
-            elseif luasnip.expand_or_jumpable() then luasnip.expand_or_jump()
-            else fallback() end
-          end, { "i", "s" }),
-        }),
-        sources = cmp.config.sources({
-          { name = 'vimtex' },
-          { name = 'luasnip' },
-          { name = 'buffer' },
-        })
+      require('tabout').setup({
+        tabkey = '<Tab>', 
+        backwards_tabkey = '<S-Tab>',
+        completion = true --do not tab out when in completion mode
       })
-    end
+    end,
   },
 
   -- AUTO-PAIRS
@@ -226,13 +274,13 @@ local rep = require("luasnip.extras").rep
 ls.add_snippets("tex", {
   s("beg", fmt([[\begin{{{}}}{}\end{{{}}}]], { i(1), i(0), rep(1) })),
   s("ff", fmt([[\frac{{{}}}{{{}}}]], { i(1), i(2) })),
-  s("mk", fmt("${}$", { i(1) })),
+  s("mm", fmt("${}$", { i(1) })),
   s("dm", fmt([[
   	\[
 		{}
 	\]
 	]], { i(1) })),
-  s("lf", fmt([[\left{} {} \right{}]], { i(1), i(0), rep(1) }))
+  s("lr", fmt([[\left{} {} \right{}]], { i(1), i(0), rep(1) }))
 })
 
 -- ==========================================================================
@@ -271,7 +319,11 @@ vim.keymap.set("x", "p", [["_dP]])
 -- 
 vim.keymap.set('n', '<leader>p', '"+p')
 vim.keymap.set('v', '<leader>y', '"+y') -- Leader + y to copy to system clipboard
+-- Undo with Ctrl+z in Normal and Visual Mode
+vim.keymap.set({'n', 'v'}, '<C-z>', 'u', { desc = 'Undo' })
 
+-- Undo with Ctrl+z in Insert Mode
+vim.keymap.set('i', '<C-z>', '<C-o>u', { desc = 'Undo in insert mode' })
 -- One-key Git Sync (Add, Commit, and Push)
 vim.keymap.set('n', '<leader>gp', ':!git add . && git commit -m "auto-update" && git push<CR>', { desc = "Git Push Shortcut" })
 
