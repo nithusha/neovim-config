@@ -10,7 +10,8 @@ vim.g.vimtex_toc_config = {
   layers = { 'content' }, 
   
 }
-
+-- Tell Neovim that the code \27[13;2u (from your terminal) equals Shift+Enter
+vim.cmd("set <S-CR>=^[13;2u")
 -- ==========================================================================
 -- 1. THE PLUGIN MANAGER (LAZY.NVIM)
 -- ==========================================================================
@@ -36,6 +37,8 @@ vim.opt.fillchars = { eob = " " }
 vim.opt.wrap = true
 vim.opt.linebreak = true -- This stops words from being chopped in half.
 vim.opt.breakindent = true -- Makes wrapped lines look cleaner by matching the indent of the line above
+vim.opt.ignorecase = true
+-- vim.opt.smartcase = true
 
 
 -- ==========================================================================
@@ -166,9 +169,14 @@ require("lazy").setup({
         }
         dashboard.section.footer.val = {
             " ",
-            "--- SHORTCUTS ---",
-            "V+d: Delete chunk | u: Undo | Space+e: Sidebar",
-            "Ctrl+\\: Terminal | Tab: Next File | \\ll: Compile",
+            "--- SHORTCUTS IN NORMAL MODE ---",
+            "V+d: Delete Chunk | u: Undo | Space+e: Sidebar" ,
+            "Ctrl+\\: Terminal | Tab: Next File | \\ll: Compile | n: Search Next | N: Search Previous | gg: Go to 1st line",
+            "/{text}: Search Forward | ?{text}: Search Backward",
+            " "  ,
+            "--- LATEX & GIT ---",
+            "SPC + tc : Toggle TOC  |  \\ll      : Compile ",
+            "SPC + gp : Git Sync    |  SPC + p  : Paste Sys",
         }
         require('alpha').setup(dashboard.opts)
     end
@@ -313,19 +321,38 @@ vim.keymap.set('n', 'k', "gk", { silent = true })
 -- CLIPBOARD & DELETE FIXES
 -- Toggle the LaTeX Table of Contents (ToC)
 vim.keymap.set('n', '<leader>tc', ':VimtexTocToggle<CR>', { desc = "Toggle Table of Contents" })
+
 vim.keymap.set('n', 'x', '"_x')
 vim.keymap.set("x", "p", [["_dP]])
 
--- 
-vim.keymap.set('n', '<leader>p', '"+p')
-vim.keymap.set('v', '<leader>y', '"+y') -- Leader + y to copy to system clipboard
+-- COPY & PASTE EXTERNALLY / INTERNALLY
+
+
+-- COPY & PASTE EXTERNALLY / INTERNALLY
+-- COPY & PASTE EXTERNALLY / INTERNALLY
+vim.keymap.set('v', '<leader>c', '"+y') --Copy in visual mode
+vim.keymap.set('n', '<leader>p', '"+p') --Paste in normal mode
 -- Undo with Ctrl+z in Normal and Visual Mode
 vim.keymap.set({'n', 'v'}, '<C-z>', 'u', { desc = 'Undo' })
 
--- Undo with Ctrl+z in Insert Mode
+-- UNDO
 vim.keymap.set('i', '<C-z>', '<C-o>u', { desc = 'Undo in insert mode' })
+
+
 -- One-key Git Sync (Add, Commit, and Push)
-vim.keymap.set('n', '<leader>gp', ':!git add . && git commit -m "auto-update" && git push<CR>', { desc = "Git Push Shortcut" })
+vim.keymap.set('n', '<leader>gp', function()
+    -- 1. Get the directory of the file you are currently editing
+    local file_dir = vim.fn.expand('%:p:h')
+    
+    -- 2. Construct the command: 
+    -- Change directory to file_dir, THEN run git commands
+    local cmd = string.format("cd %s && git add . && git commit -m 'auto-update' && git push", vim.fn.shellescape(file_dir))
+    
+    -- 3. Execute the command and print the result
+    print("Syncing: " .. file_dir)
+    vim.fn.system(cmd)
+    print("Git Sync Complete!")
+end, { desc = 'Git sync from current file directory' })
 
 -- ==========================================================================
 -- 6. AUTOMATION & FILE-SPECIFIC FIXES
@@ -376,3 +403,57 @@ vim.api.nvim_set_hl(0, "@markup.math", { fg = "#77DD77", bold = true })
 vim.api.nvim_set_hl(0, "texMathDelimZone", { fg = "#77DD77", bold = true })
 vim.api.nvim_set_hl(0, "texMathSymbol", { fg = "#77DD77", bold = true })
 require('nvim-treesitter.install').prefer_git = true
+
+-- ==========================================================================
+-- 8. LATEX SPECIFIC LOGIC (Refined for init.lua)
+-- ==========================================================================
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "tex", "latex" }, -- catches both standard tex and detected latex
+  callback = function(event)
+    print("LaTeX Setup Loaded!") -- CONFIRMATION MESSAGE
+    
+    local buf = event.buf
+    local function opts(desc)
+      return { silent = true, buffer = buf, desc = desc }
+    end
+
+    -- 1. THE SMART INSERT FUNCTION
+    local function smartInsert()
+      local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+      local current_line = vim.api.nvim_get_current_line()
+      local whiteSpace = string.match(current_line, '^%s*') or ''
+
+      -- Define environments
+      local environments = {
+        { names = {'itemize', 'enumerate'}, text = '\\item ', adjust_ws = function(line, ws) return string.match(line, '\\item') and ws:sub(1) or ws end },
+        { names = {'equivEnumerate'}, text = '\\item[($\\Rw$)] ', adjust_ws = function(line, ws) return string.match(line, '\\item') and ws:sub(1) or ws end },
+        { names = {'Exercise', 'Answer'}, text = '\\Question ' },
+        { names = {'align', 'align*'}, pre_text = '\\\\', text = '&= ' },
+        { names = {'cases', 'gather*', 'matrix', 'pmatrix'}, pre_text = '\\\\', text = '' }
+      }
+
+      for _, env in ipairs(environments) do
+        for _, name in ipairs(env.names) do
+           -- Safe check for VimTeX
+           local ok, is_inside = pcall(vim.fn["vimtex#env#is_inside"], name)
+           if ok and is_inside[1] > 0 and is_inside[2] > 0 then
+             local pre_text = env.pre_text or ''
+             local text_to_insert = env.text or ''
+             local current_whiteSpace = env.adjust_ws and env.adjust_ws(current_line, whiteSpace) or whiteSpace
+             local final_text = current_whiteSpace .. text_to_insert
+             
+             vim.api.nvim_buf_set_text(0, row - 1, col, row - 1, col, { pre_text, final_text })
+             vim.api.nvim_win_set_cursor(0, { row + 1, #final_text + 1 })
+             return
+           end
+        end
+      end
+      -- Fallback: Just insert a normal newline
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "n", true)
+    end
+
+       -- If you REALLY want Shift-Enter, uncomment the line below. 
+    -- If it doesn't work, your terminal is blocking it.
+    vim.keymap.set('i', '<S-CR>', smartInsert, opts('Smart Insert Item'))
+  end
+})
