@@ -29,6 +29,7 @@ vim.opt.relativenumber = true
 vim.opt.termguicolors = true    
 vim.opt.cursorline = true       
 vim.opt.expandtab = true        
+vim.opt.conceallevel = 2
 vim.opt.shiftwidth = 2          
 vim.opt.tabstop = 2             
 vim.opt.mouse = 'a'             
@@ -170,9 +171,9 @@ require("lazy").setup({
         dashboard.section.footer.val = {
             " ",
             "--- SHORTCUTS IN NORMAL MODE ---",
-            "V+d: Delete Chunk | u: Undo | Space+e: Sidebar" ,
-            "Ctrl+\\: Terminal | Tab: Next File | \\ll: Compile | n: Search Next | N: Search Previous | gg: Go to 1st line",
-            "/{text}: Search Forward | ?{text}: Search Backward",
+            "V+d: Delete Chunk       |    u: Undo     | Space+e: Sidebar | Ctrl+\\: Terminal" ,
+            "Tab: Next File          | \\ll: Compile  |  n: Search Next  | N: Search Previous",
+            "gg: Go to 1st line      |/{text}: Search Forward | ?{text}: Search Backward",
             " "  ,
             "--- LATEX & GIT ---",
             "SPC + tc : Toggle TOC  |  \\ll      : Compile ",
@@ -181,7 +182,7 @@ require("lazy").setup({
         require('alpha').setup(dashboard.opts)
     end
   },
-
+   
   -- VIMTEX
   { "lervag/vimtex", lazy = false },
 
@@ -195,63 +196,63 @@ require("lazy").setup({
       "L3MON4D3/LuaSnip",
       "micangl/cmp-vimtex",
     },
-config = function()
-  local cmp = require("cmp")
-  local luasnip = require("luasnip")
+    config = function()
+      local cmp = require("cmp")
+      local luasnip = require("luasnip")
 
-  cmp.setup({
-    snippet = {
-      expand = function(args)
-        luasnip.lsp_expand(args.body)
-      end,
-    },
-    mapping = cmp.mapping.preset.insert({
-      -- 1. Up/Down Arrows: Cycle completion menu if visible
-      ["<Down>"] = cmp.mapping(function(fallback)
-        if cmp.visible() then
-          cmp.select_next_item({ behavior = cmp.SelectBehavior.Insert })
-        else
-          fallback()
-        end
-      end, { "i", "s" }),
+      cmp.setup({
+        snippet = {
+          expand = function(args)
+            luasnip.lsp_expand(args.body)
+          end,
+        },
+        mapping = cmp.mapping.preset.insert({
+          -- 1. Up/Down Arrows: Cycle completion menu if visible
+          ["<Down>"] = cmp.mapping(function(fallback)
+            if cmp.visible() then
+              cmp.select_next_item({ behavior = cmp.SelectBehavior.Insert })
+            else
+              fallback()
+            end
+          end, { "i", "s" }),
 
-      ["<Up>"] = cmp.mapping(function(fallback)
-        if cmp.visible() then
-          cmp.select_prev_item({ behavior = cmp.SelectBehavior.Insert })
-        else
-          fallback()
-        end
-      end, { "i", "s" }),
+          ["<Up>"] = cmp.mapping(function(fallback)
+            if cmp.visible() then
+              cmp.select_prev_item({ behavior = cmp.SelectBehavior.Insert })
+            else
+              fallback()
+            end
+          end, { "i", "s" }),
 
-      -- 2. Tab: Do NOTHING if menu is visible (Arrows handle it). 
-      -- If menu is closed: Jump snippets or Tabout.
-      ["<Tab>"] = cmp.mapping(function(fallback)
-        if cmp.visible() then
-          return -- Important: This makes Tab do nothing when menu is open
-        elseif luasnip.expand_or_jumpable() then
-          luasnip.expand_or_jump()
-        elseif require("tabout").tabout then
-          -- We try to tabout; if we aren't in brackets, it falls back to normal Tab
-          local success = require("tabout").tabout()
-          if not success then fallback() end
-        else
-          fallback()
-        end
-      end, { "i", "s" }),
+          -- 2. Tab: Do NOTHING if menu is visible (Arrows handle it). 
+          -- If menu is closed: Jump snippets or Tabout.
+          ["<Tab>"] = cmp.mapping(function(fallback)
+            if cmp.visible() then
+              return -- Important: This makes Tab do nothing when menu is open
+            elseif luasnip.expand_or_jumpable() then
+              luasnip.expand_or_jump()
+            elseif require("tabout").tabout then
+              -- We try to tabout; if we aren't in brackets, it falls back to normal Tab
+              local success = require("tabout").tabout()
+              if not success then fallback() end
+            else
+              fallback()
+            end
+          end, { "i", "s" }),
 
-      -- 3. Enter: Confirm the selection
-      ["<CR>"] = cmp.mapping.confirm({ select = true }),
-    }), -- This brace closes the mapping table correctly
+          -- 3. Enter: Confirm the selection
+          ["<CR>"] = cmp.mapping.confirm({ select = true }),
+        }), -- This brace closes the mapping table correctly
 
-    -- Sources must be OUTSIDE the mapping table
-    sources = cmp.config.sources({
-      { name = 'vimtex' },
-      { name = 'luasnip' },
-      { name = 'buffer' },
-    }),
-  })
-end,
-},
+        -- Sources must be OUTSIDE the mapping table
+        sources = cmp.config.sources({
+          { name = 'vimtex' },
+          { name = 'luasnip' },
+          { name = 'buffer' },
+        }),
+      })
+    end,
+  },
   -- TABOUT
   {
     'abecodes/tabout.nvim',
@@ -267,7 +268,30 @@ end,
 
   -- AUTO-PAIRS
   { 'windwp/nvim-autopairs', event = "InsertEnter", config = true },
-})
+
+
+  { -- https://github.com/kylechui/nvim-surround/blob/main/lua/nvim-surround/config.lua
+      "kylechui/nvim-surround",
+      event = "VeryLazy",
+      config = function()
+        require("nvim-surround").setup({
+          keymaps = {
+            insert = "<C-g>s",
+            insert_line = "<C-g>S",
+            normal = "ys",
+            normal_cur = "yc", -- was yss
+            normal_line = "yS",
+            normal_cur_line = "yC", -- was ySS
+            visual = "S",
+            visual_line = "gS",
+            delete = "ds",
+            change = "cs",
+            change_line = "cS",
+          },
+        })
+      end
+    },
+  })
 
 
 -- ==========================================================================
@@ -280,7 +304,37 @@ local fmt = require("luasnip.extras.fmt").fmt
 local rep = require("luasnip.extras").rep
 
 ls.add_snippets("tex", {
-  s("beg", fmt([[\begin{{{}}}{}\end{{{}}}]], { i(1), i(0), rep(1) })),
+  -- 1. REAL NUMBERS AUTO-EXPAND (R2 -> \mathbb{R}^2, Rn -> \mathbb{R}^n)
+  -- Trigger: R followed immediately by a digit (0-9) or 'n'
+  s(
+    {trig = "R([%d|n])", regTrig = true, snippetType="autosnippet", condition = in_mathzone},
+    fmt([[\mathbb{R}^{{{}}}]], {
+      f(function(_, snip) return snip.captures[1] end)
+    })
+  ),
+
+  -- 2. VECTOR FIELDS / SETS NOTATION (VF(X,M) -> \mathcal{X}(M))
+  -- Trigger: VF(...,...) automatically when you type the closing ')'
+  s(
+    {trig = "VF%((.-),(.-)%)", regTrig = true, snippetType="autosnippet", condition = in_mathzone},
+    fmt([[\mathcal{{{}}}({})]], {
+      f(function(_, snip) return snip.captures[1] end), -- The first capture (X)
+      f(function(_, snip) return snip.captures[2] end)  -- The second capture (M)
+    })
+  ),
+  -- 3. AUTO DOTS (, ... , -> , \ldots, )
+  -- Trigger: You type ", ... ," and it instantly becomes ", \ldots, "
+  s(
+    {trig = ", ... ,", snippetType="autosnippet", condition = in_mathzone},
+    fmt(", \\ldots, ", {})
+  ),
+
+  s("beg", fmt(
+    [[
+    \begin{{{}}}
+        {}
+    \end{{{}}}
+    ]], { i(1), i(0), rep(1) })),
   s("ff", fmt([[\frac{{{}}}{{{}}}]], { i(1), i(2) })),
   s("mm", fmt("${}$", { i(1) })),
   s("dm", fmt([[
@@ -318,6 +372,8 @@ vim.cmd('autocmd! TermOpen term://* lua set_terminal_keymaps()')
 vim.keymap.set('n', 'j', "gj", { silent = true })
 vim.keymap.set('n', 'k', "gk", { silent = true })
 
+vim.keymap.set('n', ';', ':')
+
 -- CLIPBOARD & DELETE FIXES
 -- Toggle the LaTeX Table of Contents (ToC)
 vim.keymap.set('n', '<leader>tc', ':VimtexTocToggle<CR>', { desc = "Toggle Table of Contents" })
@@ -330,7 +386,7 @@ vim.keymap.set("x", "p", [["_dP]])
 
 -- COPY & PASTE EXTERNALLY / INTERNALLY
 -- COPY & PASTE EXTERNALLY / INTERNALLY
-vim.keymap.set('v', '<leader>c', '"+y') --Copy in visual mode
+vim.keymap.set('v', '<C-c>', '"+y') --Copy in visual mode
 vim.keymap.set('n', '<leader>p', '"+p') --Paste in normal mode
 -- Undo with Ctrl+z in Normal and Visual Mode
 vim.keymap.set({'n', 'v'}, '<C-z>', 'u', { desc = 'Undo' })
@@ -354,6 +410,54 @@ vim.keymap.set('n', '<leader>gp', function()
     print("Git Sync Complete!")
 end, { desc = 'Git sync from current file directory' })
 
+
+
+-- STACK COPY (Accumulate lines from above)
+
+-- Global state to track the "stacking" sequence
+_G.stack_state = { active = false, start_row = 0, count = 0 }
+
+vim.keymap.set('i', '<M-Up>', function()
+  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+  
+  -- 1. CHECK RESET: If cursor moved oddly or we typed, reset the stack
+  -- (We expect the cursor to be on the line BELOW what we just inserted)
+  if _G.stack_state.active then
+     if row ~= (_G.stack_state.last_insert_row + 1) then
+        _G.stack_state.active = false
+     end
+  end
+
+  -- 2. INITIALIZE if new sequence
+  if not _G.stack_state.active then
+      _G.stack_state.active = true
+      _G.stack_state.base_row = row -- The "original" cursor line
+      _G.stack_state.count = 0
+  end
+
+  -- 3. CALCULATE TARGET LINE (The line we want to steal)
+  -- We look upwards from the ORIGINAL base row, minus how many we've already stolen
+  local target_idx = _G.stack_state.base_row - 1 - _G.stack_state.count - 1 
+  
+  if target_idx < 0 then 
+    print("Top of file reached!")
+    return 
+  end
+
+  -- 4. GET & INSERT TEXT
+  local target_text = vim.api.nvim_buf_get_lines(0, target_idx, target_idx + 1, false)[1]
+  
+  -- Insert the text at the CURRENT cursor row (pushing the cursor down)
+  vim.api.nvim_buf_set_lines(0, row - 1, row - 1, false, { target_text })
+  
+  -- 5. UPDATE STATE
+  _G.stack_state.count = _G.stack_state.count + 1
+  _G.stack_state.last_insert_row = row -- We just inserted at 'row', so cursor is now row+1
+  
+  -- Move cursor down to stay "under" the stack we are building
+  vim.api.nvim_win_set_cursor(0, { row + 1, col })
+
+end, { desc = "Stack copy previous lines" })
 -- ==========================================================================
 -- 6. AUTOMATION & FILE-SPECIFIC FIXES
 -- ==========================================================================
@@ -454,6 +558,6 @@ vim.api.nvim_create_autocmd("FileType", {
 
        -- If you REALLY want Shift-Enter, uncomment the line below. 
     -- If it doesn't work, your terminal is blocking it.
-    vim.keymap.set('i', '<S-CR>', smartInsert, opts('Smart Insert Item'))
+    vim.keymap.set('i', '<S-CR>', smartInsert, {desc = 'Smart Insert Item'})
   end
 })
