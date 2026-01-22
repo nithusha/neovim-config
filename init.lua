@@ -5,7 +5,7 @@ vim.g.mapleader = " "
 vim.g.vimtex_toc_config = {
   fold_enable = 1,       -- Enable the ability to collapse/expand
   fold_level_start = 0,  -- 0 means everything starts CLOSED (collapsed)
-  split_width = 22,
+  split_width = 27,
   show_numbers = 0,
   layers = { 'content' }, 
   
@@ -29,7 +29,6 @@ vim.opt.relativenumber = true
 vim.opt.termguicolors = true    
 vim.opt.cursorline = true       
 vim.opt.expandtab = true        
-vim.opt.conceallevel = 2
 vim.opt.shiftwidth = 2          
 vim.opt.tabstop = 2             
 vim.opt.mouse = 'a'             
@@ -171,13 +170,13 @@ require("lazy").setup({
         dashboard.section.footer.val = {
             " ",
             "--- SHORTCUTS IN NORMAL MODE ---",
-            "V+d: Delete Chunk       |    u: Undo     | Space+e: Sidebar | Ctrl+\\: Terminal" ,
-            "Tab: Next File          | \\ll: Compile  |  n: Search Next  | N: Search Previous",
-            "gg: Go to 1st line      |/{text}: Search Forward | ?{text}: Search Backward",
+            "V+d: Delete Chunk       | u: Undo                 | Space+e: Sidebar         | Ctrl+\\: Terminal" ,
+            "Tab: Next File          |  \\ll: Compile           | n: Search Next           | N: Search Previous",
+            "gg: Go to 1st line      | /{text}: Search Forward | ?{text}: Search Backward |" ,
             " "  ,
             "--- LATEX & GIT ---",
-            "SPC + tc : Toggle TOC  |  \\ll      : Compile ",
-            "SPC + gp : Git Sync    |  SPC + p  : Paste Sys",
+            "SPC + tc : Toggle TOC   |  \\ll      : Compile ",
+            "SPC + gp : Git Sync     |  SPC + p  : Paste Sys",
         }
         require('alpha').setup(dashboard.opts)
     end
@@ -288,6 +287,43 @@ require("lazy").setup({
             change = "cs",
             change_line = "cS",
           },
+
+         -- 2. THE FIX: Define "\" to wrap, then jump to end
+        surrounds = {
+          ["\\"] = {
+            add = function()
+              -- A. Ask for the command (User types 'sqrt' then hits ENTER)
+              local cmd = require("nvim-surround.config").get_input("LaTeX Command: ")
+              
+              -- B. If user hit Enter (didn't cancel):
+              if cmd then
+                local last_char = cmd:sub(-1)
+                local match_pairs = { ["("]=")", ["["]="]", ["{"]="}", ["|"]="|" }
+
+                if match_pairs[last_char] then
+                  local cmd_base = cmd:sub(1, -2) -- e.g. "left" or "Bigg"
+                  local close_char = match_pairs[last_char]
+
+                  -- Logic: "left" becomes "right", but "Bigg" stays "Bigg"
+                  local close_cmd = cmd_base
+                  if cmd_base == "left" then close_cmd = "right" end
+
+                  -- Queue Jump: Find the opening char, jump to matching %, then insert
+                  vim.schedule(function() 
+                    vim.cmd("normal! f" .. last_char .. "%a") 
+                  end)
+
+                  return { { "\\" .. cmd_base .. last_char }, { "\\" .. close_cmd .. close_char } }
+                         
+                  -- C. Standard Command (text, sqrt, etc.) -> Add Curly Braces
+                else
+                  vim.schedule(function() vim.cmd("normal! f{%a") end)
+                  return { { "\\" .. cmd .. "{" }, { "}" } }
+                end              
+              end
+            end,
+          },
+        }, 
         })
       end
     },
@@ -300,7 +336,10 @@ require("lazy").setup({
 local ls = require("luasnip")
 local s = ls.snippet
 local i = ls.insert_node
+local f = ls.function_node
+local d = ls.dynamic_node
 local fmt = require("luasnip.extras.fmt").fmt
+local fmta = require("luasnip.extras.fmt").fmta
 local rep = require("luasnip.extras").rep
 
 ls.add_snippets("tex", {
@@ -308,7 +347,7 @@ ls.add_snippets("tex", {
   -- Trigger: R followed immediately by a digit (0-9) or 'n'
   s(
     {trig = "R([%d|n])", regTrig = true, snippetType="autosnippet", condition = in_mathzone},
-    fmt([[\mathbb{R}^{{{}}}]], {
+    fmt([[\mathbb{{R}}^{{{}}}]], {
       f(function(_, snip) return snip.captures[1] end)
     })
   ),
@@ -329,12 +368,21 @@ ls.add_snippets("tex", {
     fmt(", \\ldots, ", {})
   ),
 
-  s("beg", fmt(
-    [[
-    \begin{{{}}}
-        {}
-    \end{{{}}}
-    ]], { i(1), i(0), rep(1) })),
+s(
+			{ trig = ":([%w%*]+%s?)", regTrig = true, wordTrig = true, dscr = "new environment",priority =100},
+			fmta(
+				[[
+				\begin{<>}
+					<><>
+				\end{<>}
+				]],
+				{
+					f(function(_, snip) return snip.captures[1] end),
+					d(1, get_visual), i(0),
+					f(function(_, snip) return snip.captures[1] end),
+				}
+			)	),
+
   s("ff", fmt([[\frac{{{}}}{{{}}}]], { i(1), i(2) })),
   s("mm", fmt("${}$", { i(1) })),
   s("dm", fmt([[
@@ -414,51 +462,189 @@ end, { desc = 'Git sync from current file directory' })
 
 -- STACK COPY (Accumulate lines from above)
 
--- Global state to track the "stacking" sequence
-_G.stack_state = { active = false, start_row = 0, count = 0 }
+    -- Global state to track the "stacking" sequence
+    _G.stack_state = { active = false, start_row = 0, count = 0 }
 
-vim.keymap.set('i', '<M-Up>', function()
-  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-  
-  -- 1. CHECK RESET: If cursor moved oddly or we typed, reset the stack
-  -- (We expect the cursor to be on the line BELOW what we just inserted)
-  if _G.stack_state.active then
-     if row ~= (_G.stack_state.last_insert_row + 1) then
-        _G.stack_state.active = false
-     end
-  end
+    vim.keymap.set('i', '<M-Up>', function()
+      local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+      
+      -- 1. CHECK RESET: If cursor moved oddly or we typed, reset the stack
+      -- (We expect the cursor to be on the line BELOW what we just inserted)
+      if _G.stack_state.active then
+         if row ~= (_G.stack_state.last_insert_row + 1) then
+            _G.stack_state.active = false
+         end
+      end
 
-  -- 2. INITIALIZE if new sequence
-  if not _G.stack_state.active then
-      _G.stack_state.active = true
-      _G.stack_state.base_row = row -- The "original" cursor line
-      _G.stack_state.count = 0
-  end
+      -- 2. INITIALIZE if new sequence
+      if not _G.stack_state.active then
+          _G.stack_state.active = true
+          _G.stack_state.base_row = row -- The "original" cursor line
+          _G.stack_state.count = 0
+      end
 
-  -- 3. CALCULATE TARGET LINE (The line we want to steal)
-  -- We look upwards from the ORIGINAL base row, minus how many we've already stolen
-  local target_idx = _G.stack_state.base_row - 1 - _G.stack_state.count - 1 
-  
-  if target_idx < 0 then 
-    print("Top of file reached!")
-    return 
-  end
+      -- 3. CALCULATE TARGET LINE (The line we want to steal)
+      -- We look upwards from the ORIGINAL base row, minus how many we've already stolen
+      local target_idx = _G.stack_state.base_row - 1 - _G.stack_state.count - 1 
+      
+      if target_idx < 0 then 
+        print("Top of file reached!")
+        return 
+      end
 
-  -- 4. GET & INSERT TEXT
-  local target_text = vim.api.nvim_buf_get_lines(0, target_idx, target_idx + 1, false)[1]
-  
-  -- Insert the text at the CURRENT cursor row (pushing the cursor down)
-  vim.api.nvim_buf_set_lines(0, row - 1, row - 1, false, { target_text })
-  
-  -- 5. UPDATE STATE
-  _G.stack_state.count = _G.stack_state.count + 1
-  _G.stack_state.last_insert_row = row -- We just inserted at 'row', so cursor is now row+1
-  
-  -- Move cursor down to stay "under" the stack we are building
-  vim.api.nvim_win_set_cursor(0, { row + 1, col })
+      -- 4. GET & INSERT TEXT
+      local target_text = vim.api.nvim_buf_get_lines(0, target_idx, target_idx + 1, false)[1]
+      
+      -- Insert the text at the CURRENT cursor row (pushing the cursor down)
+      vim.api.nvim_buf_set_lines(0, row - 1, row - 1, false, { target_text })
+      
+      -- 5. UPDATE STATE
+      _G.stack_state.count = _G.stack_state.count + 1
+      _G.stack_state.last_insert_row = row -- We just inserted at 'row', so cursor is now row+1
+      
+      -- Move cursor down to stay "under" the stack we are building
+      vim.api.nvim_win_set_cursor(0, { row + 1, col })
 
-end, { desc = "Stack copy previous lines" })
+    end, { desc = "Stack copy previous lines" })
+
+-- INCREMENTAL SELECTION (Ctrl + Left/Right)
+
+
+  -- 1. SELECT RIGHT (Ctrl + Right)
+  -- Behavior: Enters Visual Mode (if not on) and jumps to end of next word
+  vim.keymap.set({'n', 'i', 'v'}, '<C-Right>', function()
+    local mode = vim.api.nvim_get_mode().mode
+    
+    -- If in INSERT Mode: Exit insert, enter Visual, move right
+    if mode == 'i' then
+      vim.cmd("stopinsert")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("ve", true, false, true), 'n', true)
+    
+    -- If in NORMAL Mode: Enter Visual, move right
+    elseif mode == 'n' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("ve", true, false, true), 'n', true)
+      
+    -- If in VISUAL Mode: Just extend the selection right
+    elseif mode == 'v' or mode == 'V' or mode == '\22' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("e", true, false, true), 'n', true)
+    end
+  end, { desc = "Select word right" })
+
+
+  -- 2. SELECT LEFT (Ctrl + Left)
+  -- Behavior: Enters Visual Mode (if not on) and jumps back one word
+  vim.keymap.set({'n', 'i', 'v'}, '<C-Left>', function()
+    local mode = vim.api.nvim_get_mode().mode
+    
+    if mode == 'i' then
+      vim.cmd("stopinsert")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("vb", true, false, true), 'n', true)
+      
+    elseif mode == 'n' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("vb", true, false, true), 'n', true)
+      
+    elseif mode == 'v' or mode == 'V' or mode == '\22' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("b", true, false, true), 'n', true)
+    end
+  end, { desc = "Select word left" })
+
+
+  -- 3. SELECT WHOLE LINE UP (Ctrl + Up)
+  -- Forces Visual Line Mode (V) to grab the whole line
+  vim.keymap.set({'n', 'i', 'v'}, '<C-Up>', function()
+    local mode = vim.fn.mode()
+    if mode == 'i' then
+      vim.cmd("stopinsert")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("Vk", true, false, true), 'n', true)
+    elseif mode == 'n' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("Vk", true, false, true), 'n', true)
+    elseif mode == 'v' then
+      -- Switch from char-visual (v) to line-visual (V) then move up
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("Vk", true, false, true), 'n', true)
+    elseif mode == 'V' then
+      -- Already in line-visual, just move up
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("k", true, false, true), 'n', true)
+    end
+  end, { desc = "Select line up" })
+
+  -- 4. SELECT WHOLE LINE DOWN (Ctrl + Down)
+  -- Forces Visual Line Mode (V) to grab the whole line
+  vim.keymap.set({'n', 'i', 'v'}, '<C-Down>', function()
+    local mode = vim.fn.mode()
+    if mode == 'i' then
+      vim.cmd("stopinsert")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("Vj", true, false, true), 'n', true)
+    elseif mode == 'n' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("Vj", true, false, true), 'n', true)
+    elseif mode == 'v' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("Vj", true, false, true), 'n', true)
+    elseif mode == 'V' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("j", true, false, true), 'n', true)
+    end
+  end, { desc = "Select line down" })
+
+  -- 5. SELECT TO LINE END (Ctrl + Shift + Right)
+  -- Uses '$' to jump to end of line
+  vim.keymap.set({'n', 'i', 'v'}, '<C-S-Right>', function()
+    local mode = vim.fn.mode()
+    if mode == 'i' then
+      vim.cmd("stopinsert")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("v$", true, false, true), 'n', true)
+    elseif mode == 'n' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("v$", true, false, true), 'n', true)
+    elseif mode == 'v' or mode == 'V' or mode == '\22' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("$", true, false, true), 'n', true)
+    end
+  end, { desc = "Select to EOL" })
+
+  -- 6. SELECT TO LINE START (Ctrl + Shift + Left)
+  -- Uses '0' to jump to start of line
+  vim.keymap.set({'n', 'i', 'v'}, '<C-S-Left>', function()
+    local mode = vim.fn.mode()
+    if mode == 'i' then
+      vim.cmd("stopinsert")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("v0", true, false, true), 'n', true)
+    elseif mode == 'n' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("v0", true, false, true), 'n', true)
+    elseif mode == 'v' or mode == 'V' or mode == '\22' then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("0", true, false, true), 'n', true)
+    end
+  end, { desc = "Select to SOL" })
+
 -- ==========================================================================
+-- HOME / END NAVIGATION (For Fn + Left/Right)
+-- ==========================================================================
+
+-- 1. HOME (Fn + Left) -> Go to start of line
+vim.keymap.set({'n', 'i'}, '<Home>', function()
+  -- If in Insert Mode, we use <C-o> to jump without leaving insert
+  if vim.fn.mode() == 'i' then
+     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-o>^", true, false, true), 'n', true)
+  else
+     -- In Normal Mode, go to first non-empty character
+     vim.cmd("normal! ^")
+  end
+end, { desc = "Go to start of text" })
+
+-- 2. END (Fn + Right) -> Go to end of line
+vim.keymap.set({'n', 'i'}, '<End>', function()
+  if vim.fn.mode() == 'i' then
+     -- In Insert Mode, just move to the end
+     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<End>", true, false, true), 'n', true)
+  else
+     -- In Normal Mode, go to end ($)
+     vim.cmd("normal! $")
+  end
+end, { desc = "Go to end of line" })
+
+
+
+
+
+
+
+
+  -- ==========================================================================
 -- 6. AUTOMATION & FILE-SPECIFIC FIXES
 -- ==========================================================================
 -- Word Wrap Fix:
